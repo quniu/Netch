@@ -145,6 +145,7 @@
     "Link can not be empty": "链接不可为空",
     "Link must start with http:// or https://": "链接必须以 http:// 或 https:// 开头",
     "Successfully saved": "保存成功",
+    "Please fill in alterID": "请填写额外ID",
 
     "Settings": "设置",
     "Start when opened": "打开软件时启动加速",
@@ -177,6 +178,8 @@
     "STUN Server": "STUN 服务器",
     "STUN Server Port": "STUN 服务器端口",
     "Custom ACL": "自定义 ACL 规则",
+    "Language": "语言",
+    "Saved. Modify some settings need to restart the software": "保存成功，修改部分设置需重启软件",
 
     "Profile": "配置名",
     "Profiles": "配置",
