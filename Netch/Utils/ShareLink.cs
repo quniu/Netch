@@ -1,12 +1,14 @@
-﻿using Netch.Models;
-using Netch.Models.SS;
-using Newtonsoft.Json;
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
 using System.Text.RegularExpressions;
 using System.Web;
+using Netch.Models;
+using Netch.Models.SS;
+using Netch.Models.SSD;
+using Newtonsoft.Json;
+using Server = Netch.Models.Server;
 
 namespace Netch.Utils
 {
@@ -36,9 +38,9 @@ namespace Netch.Utils
         /// </summary>
         /// <param name="server">需要获取分享链接的服务器</param>
         /// <returns>解码后的字符串</returns>
-        public static string GetShareLink(Models.Server server)
+        public static string GetShareLink(Server server)
         {
-            string retLinkStr = "";
+            var retLinkStr = "";
             switch (server.Type)
             {
                 case "Socks5":
@@ -54,12 +56,12 @@ namespace Netch.Utils
                 case "SSR":
                     // https://github.com/shadowsocksr-backup/shadowsocks-rss/wiki/SSR-QRcode-scheme
                     // ssr://base64(host:port:protocol:method:obfs:base64pass/?obfsparam=base64param&protoparam=base64param&remarks=base64remarks&group=base64group&udpport=0&uot=0)
-                    string paraStr = string.Format("/?obfsparam={0}&protoparam={1}&remarks={2}", URLSafeBase64Encode(server.OBFSParam), URLSafeBase64Encode(server.ProtocolParam), URLSafeBase64Encode(server.Remark));
+                    var paraStr = string.Format("/?obfsparam={0}&protoparam={1}&remarks={2}", URLSafeBase64Encode(server.OBFSParam), URLSafeBase64Encode(server.ProtocolParam), URLSafeBase64Encode(server.Remark));
                     retLinkStr = "ssr://" + URLSafeBase64Encode(string.Format("{0}:{1}:{2}:{3}:{4}:{5}{6}", server.Hostname, server.Port, server.Protocol, server.EncryptMethod, server.OBFS, URLSafeBase64Encode(server.Password), paraStr));
 
                     break;
                 case "VMess":
-                    string vmessJson = Newtonsoft.Json.JsonConvert.SerializeObject(new
+                    var vmessJson = JsonConvert.SerializeObject(new
                     {
                         v = "2",
                         ps = server.Remark,
@@ -267,7 +269,7 @@ namespace Netch.Utils
                 }
                 else if (text.StartsWith("ssd://"))
                 {
-                    var json = JsonConvert.DeserializeObject<Models.SSD.Main>(URLSafeBase64Decode(text.Substring(6)));
+                    var json = JsonConvert.DeserializeObject<Main>(URLSafeBase64Decode(text.Substring(6)));
 
                     foreach (var server in json.servers)
                     {
@@ -292,85 +294,6 @@ namespace Netch.Utils
                 {
 
                     list.Add(SsrServerFromLink(text));
-
-                    /* var data = new Server();
-                     data.Type = "SSR";
-
-                     text = text.Substring(6);
-
-                     var parser = new Regex(@"^(?<server>.+):(?<port>(-?\d+?)):(?<protocol>.+?):(?<method>.+?):(?<obfs>.+?):(?<password>.+?)/\?(?<info>.*)$");
-                     var parser2 = new Regex(@"^(?<server>.+):(?<port>(-?\d+?)):(?<protocol>.+?):(?<method>.+?):(?<obfs>.+?):(?<password>.+?)/$");
-                     var match = parser2.Match(URLSafeBase64Decode(text));
-                     if (!match.Success)
-                     {
-                         match = parser2.Match(UnBase64String(text));
-                     }
-
-                     if (match.Success)
-                     {
-                         data.Hostname = match.Groups["server"].Value;
-                         data.Port = int.Parse(match.Groups["port"].Value);
-                         if (data.Port < 0)
-                         {
-                             data.Port += 65536;
-                         }
-                         data.Password = URLSafeBase64Decode(match.Groups["password"].Value);
-
-                         data.EncryptMethod = match.Groups["method"].Value;
-                         if (!Global.EncryptMethods.SSR.Contains(data.EncryptMethod))
-                         {
-                             Logging.Info(string.Format("不支持的 SSR 加密方式：{0}", data.EncryptMethod));
-                             return null;
-                         }
-
-                         data.Protocol = match.Groups["protocol"].Value;
-                         if (!Global.Protocols.Contains(data.Protocol))
-                         {
-                             Logging.Info(string.Format("不支持的 SSR 协议：{0}", data.Protocol));
-                             return null;
-                         }
-
-                         data.OBFS = match.Groups["obfs"].Value;
-                         if (data.OBFS == @"tls1.2_ticket_fastauth")
-                         {
-                             data.OBFS = @"tls1.2_ticket_auth";
-                         }
-                         if (!Global.OBFSs.Contains(data.OBFS))
-                         {
-                             Logging.Info(string.Format("不支持的 SSR 混淆：{0}", data.OBFS));
-                             return null;
-                         }
-
-                         var info = match.Groups["info"].Value;
-                         var dict = new Dictionary<string, string>();
-                         foreach (var str in info.Split('&'))
-                         {
-                             var splited = str.Split('=');
-                             dict.Add(splited[0], splited[1]);
-                         }
-
-                         if (dict.ContainsKey("remarks"))
-                         {
-                             data.Remark = URLSafeBase64Decode(dict["remarks"]);
-                         }
-
-                         if (dict.ContainsKey("protoparam"))
-                         {
-                             data.ProtocolParam = URLSafeBase64Decode(dict["protoparam"]);
-                         }
-
-                         if (dict.ContainsKey("obfsparam"))
-                         {
-                             data.OBFSParam = URLSafeBase64Decode(dict["obfsparam"]);
-                         }
-
-                         if (Global.EncryptMethods.SS.Contains(data.EncryptMethod) && data.Protocol == "origin" && data.OBFS == "plain")
-                         {
-                             data.OBFS = "";
-                             data.Type = "SS";
-                         }
-                         list.Add(data);
-                     }*/
 
                 }
                 else if (text.StartsWith("vmess://"))
@@ -574,10 +497,10 @@ namespace Netch.Utils
             }
 
             byte[] emoji_bytes = { 240, 159 };
-            foreach (Server node in list)
+            foreach (var node in list)
             {
                 var remark = Encoding.UTF8.GetBytes(node.Remark);
-                int start_index = 0;
+                var start_index = 0;
                 while (remark.Length > start_index + 1 && remark[start_index] == emoji_bytes[0] && remark[start_index + 1] == emoji_bytes[1])
                     start_index += 4;
                 node.Remark = Encoding.UTF8.GetString(remark.Skip(start_index).ToArray()).Trim();
@@ -591,7 +514,7 @@ namespace Netch.Utils
             {
                 return "";
             }
-            byte[] bytes = Convert.FromBase64String(value);
+            var bytes = Convert.FromBase64String(value);
             return Encoding.UTF8.GetString(bytes);
         }
         public static string ToBase64String(string value)
@@ -600,7 +523,7 @@ namespace Netch.Utils
             {
                 return "";
             }
-            byte[] bytes = Encoding.UTF8.GetBytes(value);
+            var bytes = Encoding.UTF8.GetBytes(value);
             return Convert.ToBase64String(bytes);
         }
 
@@ -673,7 +596,7 @@ namespace Netch.Utils
             {
                 Server_Udp_Port = ushort.Parse(params_dict["udpport"]);
             }*/
-            Server server = new Server();
+            var server = new Server();
             server.Type = "SSR";
             server.Hostname = serverAddr;
             server.Port = Server_Port;
