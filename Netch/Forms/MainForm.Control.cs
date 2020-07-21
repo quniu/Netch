@@ -15,63 +15,52 @@ namespace Netch.Forms
 
     partial class MainForm
     {
-        public void ControlFun()
+        private bool _isFirstCloseWindow = true;
+
+        private void ControlFun()
         {
-            SaveConfigs();
+            //防止模式选择框变成蓝色:D
+            ModeComboBox.Select(0, 0);
+
             if (State == State.Waiting || State == State.Stopped)
             {
                 // 服务器、模式 需选择
                 if (ServerComboBox.SelectedIndex == -1)
                 {
-                    MessageBox.Show(i18N.Translate("Please select a server first"), i18N.Translate("Information"),
-                        MessageBoxButtons.OK, MessageBoxIcon.Information);
+                    MessageBoxX.Show(i18N.Translate("Please select a server first"));
                     return;
                 }
 
                 if (ModeComboBox.SelectedIndex == -1)
                 {
-                    MessageBox.Show(i18N.Translate("Please select an mode first"), i18N.Translate("Information"),
-                        MessageBoxButtons.OK, MessageBoxIcon.Information);
+                    MessageBoxX.Show(i18N.Translate("Please select a mode first"));
                     return;
                 }
-
-                //MenuStrip.Enabled = ConfigurationGroupBox.Enabled = ControlButton.Enabled = SettingsButton.Enabled = false;
 
                 UpdateStatus(State.Starting);
 
                 Task.Run(() =>
                 {
+                    Task.Run(Firewall.AddNetchFwRules);
+
                     var server = ServerComboBox.SelectedItem as Models.Server;
                     var mode = ModeComboBox.SelectedItem as Models.Mode;
 
-                    MainController = new MainController();
-
-                    var startResult = MainController.Start(server, mode);
-
-                    if (startResult)
+                    if (_mainController.Start(server, mode))
                     {
                         Task.Run(() =>
                         {
-                            LastUploadBandwidth = 0;
-                            //LastDownloadBandwidth = 0;
-                            //UploadSpeedLabel.Text = "↑: 0 KB/s";
-                            DownloadSpeedLabel.Text = "↑↓: 0 KB/s";
-                            UsedBandwidthLabel.Text = $"{i18N.Translate("Used")}{i18N.Translate(": ")}0 KB";
-                            UsedBandwidthLabel.Visible = UploadSpeedLabel.Visible = DownloadSpeedLabel.Visible = true;
-
-
-                            UploadSpeedLabel.Visible = false;
-                            Bandwidth.NetTraffic(server, mode, MainController);
+                            UpdateStatus(State.Started,
+                                i18N.Translate(StateExtension.GetStatusString(State.Started)) + LocalPortText(server.Type, mode.Type));
+                            Bandwidth.NetTraffic(server, mode, _mainController);
                         });
-                        //MainController.pNFController.OnBandwidthUpdated += OnBandwidthUpdated;
-
                         // 如果勾选启动后最小化
                         if (Global.Settings.MinimizeWhenStarted)
                         {
                             WindowState = FormWindowState.Minimized;
                             NotifyIcon.Visible = true;
 
-                            if (IsFirstOpened)
+                            if (_isFirstCloseWindow)
                             {
                                 // 显示提示语
                                 NotifyIcon.ShowBalloonTip(5,
@@ -80,50 +69,11 @@ namespace Netch.Forms
                                         "Netch is now minimized to the notification bar, double click this icon to restore."),
                                     ToolTipIcon.Info);
 
-                                IsFirstOpened = false;
+                                _isFirstCloseWindow = false;
                             }
 
                             Hide();
                         }
-
-                        // TODO 是否需要移到一个函数中
-                        var text = new StringBuilder(" (");
-                        text.Append(Global.Settings.LocalAddress == "0.0.0.0"
-                            ? i18N.Translate("Allow other Devices to connect") + " "
-                            : "");
-                        if (server.Type == "Socks5")
-                        {
-                            // 不可控Socks5
-                            if (mode.Type == 3 && mode.Type == 5)
-                            {
-                                // 可控HTTP
-                                text.Append(
-                                    $"HTTP {i18N.Translate("Local Port", ": ")}{Global.Settings.HTTPLocalPort}");
-                            }
-                            else
-                            {
-                                // 不可控HTTP
-                                text.Clear();
-                            }
-                        }
-                        else
-                        {
-                            // 可控Socks5
-                            text.Append(
-                                $"Socks5 {i18N.Translate("Local Port", ": ")}{Global.Settings.Socks5LocalPort}");
-                            if (mode.Type == 3 || mode.Type == 5)
-                            {
-                                //有HTTP
-                                text.Append(
-                                    $" | HTTP {i18N.Translate("Local Port", ": ")}{Global.Settings.HTTPLocalPort}");
-                            }
-                        }
-                        if (text.Length > 0)
-                        {
-                            text.Append(")");
-                        }
-                        UpdateStatus(State.Started);
-                        StatusText(i18N.Translate(StateExtension.GetStatusString(State)) + text);
 
                         if (Global.Settings.StartedTcping)
                         {
@@ -150,8 +100,7 @@ namespace Netch.Forms
                     }
                     else
                     {
-                        UpdateStatus(State.Stopped);
-                        StatusText(i18N.Translate("Start Failed"));
+                        UpdateStatus(State.Stopped, i18N.Translate("Start failed"));
                     }
                 });
             }
@@ -159,20 +108,52 @@ namespace Netch.Forms
             {
                 // 停止
                 UpdateStatus(State.Stopping);
-
-                Task.Run(() =>
-                {
-                    var server = ServerComboBox.SelectedItem as Models.Server;
-                    var mode = ModeComboBox.SelectedItem as Models.Mode;
-
-                    MainController.Stop();
-
-                    UpdateStatus(State.Stopped);
-
-                    TestServer();
-                });
+                _mainController.Stop();
+                UpdateStatus(State.Stopped);
+                Task.Run(TestServer);
             }
         }
+
+        private static string LocalPortText(string serverType, int modeType)
+        {
+            var text = new StringBuilder(" (");
+            if (Global.Settings.LocalAddress == "0.0.0.0")
+                text.Append(i18N.Translate("Allow other Devices to connect") + " ");
+            if (serverType == "Socks5")
+            {
+                // 不可控Socks5
+                if (modeType == 3 || modeType == 5)
+                {
+                    // 可控HTTP
+                    MainController.UsingPorts.Add(Global.Settings.HTTPLocalPort);
+                    text.Append($"HTTP {i18N.Translate("Local Port", ": ")}{Global.Settings.HTTPLocalPort}");
+                }
+                else
+                {
+                    // 不可控HTTP
+                    return string.Empty;
+                }
+            }
+            else
+            {
+                // 可控Socks5
+                MainController.UsingPorts.Add(Global.Settings.Socks5LocalPort);
+                text.Append($"Socks5 {i18N.Translate("Local Port", ": ")}{Global.Settings.Socks5LocalPort}");
+                if (modeType == 3 || modeType == 5)
+                {
+                    // 有HTTP
+                    MainController.UsingPorts.Add(Global.Settings.HTTPLocalPort);
+                    text.Append($" | HTTP {i18N.Translate("Local Port", ": ")}{Global.Settings.HTTPLocalPort}");
+                }
+            }
+
+            if (modeType == 0)
+                MainController.UsingPorts.Add(Global.Settings.RedirectorTCPPort);
+
+            text.Append(")");
+            return text.ToString();
+        }
+
 
         public void OnBandwidthUpdated(long download)
         {
@@ -201,7 +182,7 @@ namespace Netch.Forms
                 }
 
                 UsedBandwidthLabel.Text =
-                    $"{i18N.Translate("Used")}{i18N.Translate(": ")}{Bandwidth.Compute(upload + download)}";
+                    $"{i18N.Translate("Used", ": ")}{Bandwidth.Compute(upload + download)}";
                 UploadSpeedLabel.Text = $"↑: {Bandwidth.Compute(upload - LastUploadBandwidth)}/s";
                 DownloadSpeedLabel.Text = $"↓: {Bandwidth.Compute(download - LastDownloadBandwidth)}/s";
 

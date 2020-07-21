@@ -2,6 +2,7 @@
 using System.IO;
 using System.Threading;
 using System.Windows.Forms;
+using Netch.Controllers;
 using Netch.Forms;
 using Netch.Utils;
 
@@ -57,26 +58,14 @@ namespace Netch
 
                 // 记录当前系统语言
                 Logging.Info($"当前语言：{Global.Settings.Language}");
+                Logging.Info($"版本:{UpdateChecker.Owner}/{UpdateChecker.Repo} {UpdateChecker.Version}");
+                Logging.Info($"主程序创建日期:{File.GetCreationTime(Global.NetchDir + "\\Netch.exe"):yyyy-M-d HH:mm}");
 
                 // 检查是否已经运行
                 if (!mutex.WaitOne(0, false))
                 {
                     // 弹出提示
-                    MessageBox.Show(i18N.Translate("Netch is already running"), i18N.Translate("Information"), MessageBoxButtons.OK, MessageBoxIcon.Information);
-
-                    // 退出进程
-                    Environment.Exit(1);
-                }
-
-                var OS = Environment.Is64BitOperatingSystem ? "x64" : "x86";
-                var PROC = Environment.Is64BitProcess ? "x64" : "x86";
-
-                // 如果系统位数与程序位数不一致
-                if (OS != PROC)
-                {
-
-                    // 弹出提示
-                    MessageBox.Show($"{i18N.Translate("Netch is not compatible with your system.")}\n{i18N.Translate("Current arch of Netch:")} {PROC}\n{i18N.Translate("Current arch of system:")} {OS}", i18N.Translate("Information"), MessageBoxButtons.OK, MessageBoxIcon.Information);
+                    MessageBoxX.Show(i18N.Translate("Netch is already running"));
 
                     // 退出进程
                     Environment.Exit(1);

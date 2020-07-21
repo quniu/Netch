@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Linq;
 using System.Threading.Tasks;
 using Microsoft.Diagnostics.Tracing.Parsers;
 using Microsoft.Diagnostics.Tracing.Session;
@@ -15,13 +16,13 @@ namespace Netch.Utils
         public static int received;
 
         /// <summary>
-		///     计算流量
-		/// </summary>
-		/// <param name="bandwidth">流量</param>
-		/// <returns>带单位的流量字符串</returns>
-		public static string Compute(long bandwidth)
+        ///     计算流量
+        /// </summary>
+        /// <param name="bandwidth">流量</param>
+        /// <returns>带单位的流量字符串</returns>
+        public static string Compute(long bandwidth)
         {
-            string[] units = { "KB", "MB", "GB", "TB", "PB" };
+            string[] units = {"KB", "MB", "GB", "TB", "PB"};
             double result = bandwidth;
             var i = -1;
 
@@ -48,41 +49,27 @@ namespace Netch.Utils
             //int sent = 0;
 
             //var processList = Process.GetProcessesByName(ProcessName).Select(p => p.Id).ToHashSet();
-            var processList = new List<int>();
-
-            if (server.Type.Equals("Socks5") && mainController.pHTTPController != null)
+            var instances = new List<Process>();
+            if (server.Type.Equals("Socks5") && mainController.pModeController.Name == "HTTP")
             {
-                processList.Add(mainController.pHTTPController.pPrivoxyController.Instance.Id);
+                instances.Add(((HTTPController) mainController.pModeController).pPrivoxyController.Instance);
             }
             else if (server.Type.Equals("SS") && Global.Settings.BootShadowsocksFromDLL)
             {
-                processList.Add(Process.GetCurrentProcess().Id);
+                instances.Add(Process.GetCurrentProcess());
             }
-            else if (server.Type.Equals("SS") && mainController.pSSController != null)
+            else if (mainController.pEncryptedProxyController != null)
             {
-                processList.Add(mainController.pSSController.Instance.Id);
+                instances.Add(mainController.pEncryptedProxyController.Instance);
             }
-            else if (server.Type.Equals("SSR") && mainController.pSSRController != null)
+            else if (mainController.pModeController != null)
             {
-                processList.Add(mainController.pSSRController.Instance.Id);
+                instances.Add(mainController.pModeController.Instance);
             }
-            else if (server.Type.Equals("VMess") && mainController.pVMessController != null)
-            {
-                processList.Add(mainController.pVMessController.Instance.Id);
-            }
-            else if (server.Type.Equals("TR") && mainController.pTrojanController != null)
-            {
-                processList.Add(mainController.pTrojanController.Instance.Id);
-            }
-            else if (mainController.pTUNTAPController != null)
-            {
-                processList.Add(mainController.pTUNTAPController.Instance.Id);
-            }
-            else if (mainController.pNFController != null)
-            {
-                processList.Add(mainController.pNFController.Instance.Id);
-            }
-            Logging.Info("启动流量统计 PID：" + string.Join(",", processList.ToArray()));
+
+            var processList = instances.Select(instance => instance.Id).ToList();
+
+            Logging.Info("流量统计进程:" + string.Join(",", instances.Select(instance => $"({instance.Id})"+instance.ProcessName).ToArray()));
 
             Task.Run(() =>
             {
@@ -115,20 +102,20 @@ namespace Netch.Utils
                 }
             });
 
-            if ((Convert.ToInt32(MainForm.Instance.LastDownloadBandwidth) - Convert.ToInt32(received)) == 0)
+            if ((Convert.ToInt32(Global.MainForm.LastDownloadBandwidth) - Convert.ToInt32(received)) == 0)
             {
-                MainForm.Instance.OnBandwidthUpdated(0);
+                Global.MainForm.OnBandwidthUpdated(0);
                 received = 0;
             }
-            while (MainForm.Instance.State != State.Stopped)
+
+            while (Global.MainForm.State != State.Stopped)
             {
                 Task.Delay(1000).Wait();
                 lock (counterLock)
                 {
-                    MainForm.Instance.OnBandwidthUpdated(Convert.ToInt64(received));
+                    Global.MainForm.OnBandwidthUpdated(Convert.ToInt64(received));
                 }
             }
-
         }
     }
 }

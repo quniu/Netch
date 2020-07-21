@@ -1,5 +1,4 @@
 ﻿using System;
-using System.IO;
 using System.Linq;
 using System.Net;
 using System.ServiceProcess;
@@ -18,7 +17,9 @@ using WebClient = Netch.Override.WebClient;
 namespace Netch.Forms
 {
     partial class Dummy
-    {}
+    {
+    }
+
     partial class MainForm
     {
         #region MenuStrip
@@ -38,7 +39,7 @@ namespace Netch.Forms
                 }
                 else
                 {
-                    MessageBox.Show(i18N.Translate("Import servers error!"), i18N.Translate("Error"), MessageBoxButtons.OK, MessageBoxIcon.Exclamation);
+                    MessageBoxX.Show(i18N.Translate("Import servers error!"), info: false);
                 }
 
                 InitServer();
@@ -98,6 +99,9 @@ namespace Netch.Forms
 
         private void UpdateServersFromSubscribeLinksToolStripMenuItem_Click(object sender, EventArgs e)
         {
+            var bak_State = State;
+            var bak_StateText = StatusLabel.Text;
+
             if (Global.Settings.UseProxyToUpdateSubscription && ServerComboBox.SelectedIndex == -1)
                 Global.Settings.UseProxyToUpdateSubscription = false;
 
@@ -106,7 +110,7 @@ namespace Netch.Forms
                 // 当前 ServerComboBox 中至少有一项
                 if (ServerComboBox.SelectedIndex == -1)
                 {
-                    MessageBox.Show(i18N.Translate("Please select a server first"), i18N.Translate("Information"), MessageBoxButtons.OK, MessageBoxIcon.Information);
+                    MessageBoxX.Show(i18N.Translate("Please select a server first"));
                     return;
                 }
 
@@ -129,8 +133,8 @@ namespace Netch.Forms
                             Remark = "ProxyUpdate",
                             Type = 5
                         };
-                        MainController = new MainController();
-                        MainController.Start(ServerComboBox.SelectedItem as Models.Server, mode);
+                        _mainController = new MainController();
+                        _mainController.Start(ServerComboBox.SelectedItem as Models.Server, mode);
                     }
 
                     foreach (var item in Global.Settings.SubscribeLink)
@@ -160,7 +164,7 @@ namespace Netch.Forms
                             }
                             catch (Exception)
                             {
-                                // 跳过
+                                // ignored
                             }
 
                             Global.Settings.Server = Global.Settings.Server.Where(server => server.Group != item.Remark).ToList();
@@ -198,12 +202,16 @@ namespace Netch.Forms
                     {
                         MenuStrip.Enabled = ConfigurationGroupBox.Enabled = ControlButton.Enabled = SettingsButton.Enabled = true;
                         ControlButton.Text = i18N.Translate("Start");
-                        MainController.Stop();
+                        _mainController.Stop();
                         NatTypeStatusLabel.Text = "";
                     }
 
                     Configuration.Save();
                     StatusText(i18N.Translate("Subscription updated"));
+
+                    MenuStrip.Enabled = ConfigurationGroupBox.Enabled = ControlButton.Enabled = SettingsButton.Enabled = true;
+                    UpdateStatus(bak_State);
+                    StatusLabel.Text = bak_StateText;
                 }).ContinueWith(task => { BeginInvoke(new Action(() => { UpdateServersFromSubscribeLinksToolStripMenuItem.Enabled = true; })); });
 
                 NotifyIcon.ShowBalloonTip(5,
@@ -213,46 +221,14 @@ namespace Netch.Forms
             }
             else
             {
-                MessageBox.Show(i18N.Translate("No subscription link"), i18N.Translate("Information"), MessageBoxButtons.OK, MessageBoxIcon.Information);
+                MessageBoxX.Show(i18N.Translate("No subscription link"));
+
             }
         }
 
         #endregion
 
         #region 选项
-
-        private void RestartServiceToolStripMenuItem_Click(object sender, EventArgs e)
-        {
-            Enabled = false;
-            StatusText(i18N.Translate("Restarting service"));
-
-            Task.Run(() =>
-            {
-                try
-                {
-                    var service = new ServiceController("netfilter2");
-                    if (service.Status == ServiceControllerStatus.Stopped)
-                    {
-                        service.Start();
-                        service.WaitForStatus(ServiceControllerStatus.Running);
-                    }
-                    else if (service.Status == ServiceControllerStatus.Running)
-                    {
-                        service.Stop();
-                        service.WaitForStatus(ServiceControllerStatus.Stopped);
-                        service.Start();
-                        service.WaitForStatus(ServiceControllerStatus.Running);
-                    }
-                }
-                catch (Exception)
-                {
-                    NFAPI.nf_registerDriver("netfilter2");
-                }
-
-                MessageBox.Show(this, i18N.Translate("Service has been restarted"), i18N.Translate("Information"), MessageBoxButtons.OK, MessageBoxIcon.Information);
-                Enabled = true;
-            });
-        }
 
         private void UninstallServiceToolStripMenuItem_Click(object sender, EventArgs e)
         {
@@ -261,41 +237,21 @@ namespace Netch.Forms
 
             Task.Run(() =>
             {
-                var driver = $"{Environment.SystemDirectory}\\drivers\\netfilter2.sys";
-                if (File.Exists(driver))
+                try
                 {
-                    try
+                    if (NFController.UninstallDriver())
                     {
-                        var service = new ServiceController("netfilter2");
-                        if (service.Status == ServiceControllerStatus.Running)
-                        {
-                            service.Stop();
-                            service.WaitForStatus(ServiceControllerStatus.Stopped);
-                        }
-                    }
-                    catch (Exception)
-                    {
-                        // 跳过
-                    }
-
-                    try
-                    {
-                        NFAPI.nf_unRegisterDriver("netfilter2");
-
-                        File.Delete(driver);
-
-                        MessageBox.Show(this, i18N.Translate("Service has been uninstalled"), i18N.Translate("Information"), MessageBoxButtons.OK, MessageBoxIcon.Information);
-                    }
-                    catch (Exception ex)
-                    {
-                        MessageBox.Show(this, i18N.Translate("Error") + i18N.Translate(": ") + ex, i18N.Translate("Information"), MessageBoxButtons.OK, MessageBoxIcon.Information);
+                        MessageBoxX.Show(i18N.Translate("Service has been uninstalled"), owner: this);
                     }
                 }
-                else
+                catch (Exception e)
                 {
-                    MessageBox.Show(this, i18N.Translate("Service has been uninstalled"), i18N.Translate("Information"), MessageBoxButtons.OK, MessageBoxIcon.Information);
+                    MessageBoxX.Show(e.ToString(),info:false);
+                    Console.WriteLine(e);
+                    throw;
                 }
 
+                StatusText(i18N.Translate(StateExtension.GetStatusString(State.Waiting)));
                 Enabled = true;
             });
         }
@@ -308,22 +264,30 @@ namespace Netch.Forms
             {
                 InitMode();
 
-                MessageBox.Show(this, i18N.Translate("Modes have been reload"), i18N.Translate("Information"), MessageBoxButtons.OK, MessageBoxIcon.Information);
+                MessageBoxX.Show(i18N.Translate("Modes have been reload"), owner: this);
                 Enabled = true;
             });
         }
 
         private void CleanDNSCacheToolStripMenuItem_Click(object sender, EventArgs e)
         {
-            Enabled = false;
-            Task.Run(() =>
+            var bak_State = State;
+            var bak_StateText = StatusLabel.Text;
+
+            try
             {
+                Enabled = false;
                 DNS.Cache.Clear();
 
-                MessageBox.Show(this, i18N.Translate("DNS cache cleanup succeeded"), i18N.Translate("Information"), MessageBoxButtons.OK, MessageBoxIcon.Information);
+                MessageBoxX.Show(i18N.Translate("DNS cache cleanup succeeded"), owner: this);
                 StatusText(i18N.Translate("DNS cache cleanup succeeded"));
                 Enabled = true;
-            });
+            }
+            finally
+            {
+                UpdateStatus(bak_State);
+                StatusLabel.Text = bak_StateText;
+            }
         }
 
         private void OpenDirectoryToolStripMenuItem_Click(object sender, EventArgs e)
@@ -366,7 +330,7 @@ namespace Netch.Forms
             // 当前 ServerComboBox 中至少有一项
             if (ServerComboBox.SelectedIndex == -1)
             {
-                MessageBox.Show(i18N.Translate("Please select a server first"), i18N.Translate("Information"), MessageBoxButtons.OK, MessageBoxIcon.Information);
+                MessageBoxX.Show(i18N.Translate("Please select a server first"));
                 return;
             }
 
@@ -381,8 +345,8 @@ namespace Netch.Forms
                     Remark = "ProxyUpdate",
                     Type = 5
                 };
-                MainController = new MainController();
-                MainController.Start(ServerComboBox.SelectedItem as Models.Server, mode);
+                _mainController = new MainController();
+                _mainController.Start(ServerComboBox.SelectedItem as Models.Server, mode);
 
                 using var client = new WebClient();
 
@@ -398,14 +362,13 @@ namespace Netch.Forms
                 }
                 catch (Exception e)
                 {
-                    Logging.Info("使用代理更新 ACL 失败！" + e.Message);
-                    MessageBox.Show(i18N.Translate("ACL update failed") + "\n" + e.Message);
+                    Logging.Error("使用代理更新 ACL 失败！" + e);
+                    MessageBoxX.Show(i18N.Translate("ACL update failed") + "\n" + e);
                 }
                 finally
                 {
-
                     UpdateStatus(State.Waiting);
-                    MainController.Stop();
+                    _mainController.Stop();
                 }
             });
         }
@@ -413,35 +376,9 @@ namespace Netch.Forms
         #endregion
 
 
-        private void ExitToolStripButton_Click(object sender, EventArgs e)
+        private void exitToolStripMenuItem_Click(object sender, EventArgs e)
         {
-            // 已启动
-            if (State != State.Waiting && State != State.Stopped)
-            {
-                // 未开启自动停止
-                if (!Global.Settings.StopWhenExited)
-                {
-                    MessageBox.Show(i18N.Translate("Please press Stop button first"), i18N.Translate("Information"), MessageBoxButtons.OK, MessageBoxIcon.Information);
-
-                    Visible = true;
-                    ShowInTaskbar = true; // 显示在系统任务栏 
-                    WindowState = FormWindowState.Normal; // 还原窗体 
-                    NotifyIcon.Visible = true; // 托盘图标隐藏 
-
-                    return;
-                }
-                // 自动停止
-
-                ControlButton_Click(sender, e);
-            }
-
-            SaveConfigs();
-
-            UpdateStatus(State.Terminating);
-            NotifyIcon.Visible = false;
-            Close();
-            Dispose();
-            Environment.Exit(Environment.ExitCode);
+            Exit(true);
         }
 
         private void RelyToolStripMenuItem_Click(object sender, EventArgs e)
@@ -462,6 +399,9 @@ namespace Netch.Forms
 
         private void updateACLToolStripMenuItem_Click(object sender, EventArgs e)
         {
+            var bak_State = State;
+            var bak_StateText = StatusLabel.Text;
+
             StatusText(i18N.Translate("Starting update ACL"));
             using var client = new WebClient();
 
@@ -478,18 +418,18 @@ namespace Netch.Forms
                     }
                     else
                     {
-                        Logging.Info("ACL 更新失败！" + args.Error);
-                        MessageBox.Show(i18N.Translate("ACL update failed") + "\n" + args.Error);
+                        Logging.Error("ACL 更新失败！" + args.Error);
+                        MessageBoxX.Show(i18N.Translate("ACL update failed") + "\n" + args.Error);
                     }
                 }
                 finally
                 {
-                    UpdateStatus(State.Waiting);
+                    UpdateStatus(bak_State);
+                    StatusLabel.Text = bak_StateText;
                 }
             });
         }
 
         #endregion
-
     }
 }

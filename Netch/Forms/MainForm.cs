@@ -19,18 +19,7 @@ namespace Netch.Forms
         /// <summary>
         ///     主控制器
         /// </summary>
-        public MainController MainController;
-
-        /// <summary>
-        ///     是否第一次打开
-        /// </summary>
-        public bool IsFirstOpened = true;
-
-        /// <summary>
-        /// 主窗体的静态实例
-        /// </summary>
-        public static MainForm Instance;
-
+        private MainController _mainController = new MainController();
 
         public MainForm()
         {
@@ -40,8 +29,6 @@ namespace Netch.Forms
             SystemEvents.PowerModeChanged += SystemEvents_PowerModeChanged;
 
             CheckForIllegalCrossThreadCalls = false;
-            // MenuStrip.Renderer = new Override.ToolStripProfessionalRender();
-            Instance = this;
         }
 
         private void SaveConfigs()
@@ -64,6 +51,9 @@ namespace Netch.Forms
 
         private void MainForm_Load(object sender, EventArgs e)
         {
+            // 计算 ComboBox绘制 目标宽度
+            _eWidth = ServerComboBox.Width / 10;
+
             // 加载服务器
             InitServer();
 
@@ -72,20 +62,18 @@ namespace Netch.Forms
 
             // 加载翻译
             InitText();
-            
-            //
+
+            // 隐藏 NatTypeStatusLabel
             NatTypeStatusText();
 
-            // 加载快速配置
             _sizeHeight = Size.Height;
-            _controlHeight = ConfigurationGroupBox.Controls[0].Height / 3;
-            _profileBoxHeight = ProfileGroupBox.Height;
             _configurationGroupBoxHeight = ConfigurationGroupBox.Height;
+            _profileConfigurationHeight = ConfigurationGroupBox.Controls[0].Height / 3; // 因为 AutoSize, 所以得到的是Controls的总高度
+            _profileGroupboxHeight = ProfileGroupBox.Height;
+            // 加载快速配置
             InitProfile();
 
-            // 为 ComboBox绘制 收集宽度数据
-            _eWidth = ServerComboBox.Width / 10;
-            
+
             // 自动检测延迟
             Task.Run(() =>
             {
@@ -132,7 +120,7 @@ namespace Netch.Forms
                     WindowState = FormWindowState.Minimized;
                     NotifyIcon.Visible = true;
 
-                    if (IsFirstOpened)
+                    if (_isFirstCloseWindow)
                     {
                         // 显示提示语
                         NotifyIcon.ShowBalloonTip(5,
@@ -140,7 +128,7 @@ namespace Netch.Forms
                             i18N.Translate("Netch is now minimized to the notification bar, double click this icon to restore."),
                             ToolTipIcon.Info);
 
-                        IsFirstOpened = false;
+                        _isFirstCloseWindow = false;
                     }
 
                     Hide();
@@ -148,15 +136,13 @@ namespace Netch.Forms
                 // 如果勾选了关闭时退出，自动点击退出按钮
                 else
                 {
-                    ExitToolStripButton.PerformClick();
+                    Exit(true);
                 }
             }
         }
 
         private void ControlButton_Click(object sender, EventArgs e)
         {
-            //防止模式选择框变成蓝色:D
-            ModeComboBox.Select(0, 0);
             ControlFun();
         }
 
@@ -184,7 +170,7 @@ namespace Netch.Forms
                 InitProfile();
         }
 
-        public void InitText()
+        private void InitText()
         {
             ServerToolStripMenuItem.Text = i18N.Translate("Server");
             ImportServersFromClipboardToolStripMenuItem.Text = i18N.Translate("Import Servers From Clipboard");
@@ -207,16 +193,16 @@ namespace Netch.Forms
             reinstallTapDriverToolStripMenuItem.Text = i18N.Translate("Reinstall TUN/TAP driver");
             OpenDirectoryToolStripMenuItem.Text = i18N.Translate("Open Directory");
             AboutToolStripButton.Text = i18N.Translate("About");
-            VersionLabel.Text = i18N.Translate("xxx");
+            // VersionLabel.Text = i18N.Translate("xxx");
             exitToolStripMenuItem.Text = i18N.Translate("Exit");
             RelyToolStripMenuItem.Text = i18N.Translate("Unable to start? Click me to download");
             ConfigurationGroupBox.Text = i18N.Translate("Configuration");
             ProfileLabel.Text = i18N.Translate("Profile");
             ModeLabel.Text = i18N.Translate("Mode");
             ServerLabel.Text = i18N.Translate("Server");
-            UsedBandwidthLabel.Text = i18N.Translate("Used: 0 KB");
-            DownloadSpeedLabel.Text = i18N.Translate("↓: 0 KB/s");
-            UploadSpeedLabel.Text = i18N.Translate("↑: 0 KB/s");
+            // UsedBandwidthLabel.Text = i18N.Translate("Used: 0 KB");
+            // DownloadSpeedLabel.Text = i18N.Translate("↓: 0 KB/s");
+            // UploadSpeedLabel.Text = i18N.Translate("↑: 0 KB/s");
             NotifyIcon.Text = i18N.Translate("Netch");
             ShowMainFormToolStripButton.Text = i18N.Translate("Show");
             ExitToolStripButton.Text = i18N.Translate("Exit");
@@ -224,12 +210,59 @@ namespace Netch.Forms
             ProfileGroupBox.Text = i18N.Translate("Profiles");
             // 加载翻译
 
-            UsedBandwidthLabel.Text = $@"{i18N.Translate("Used")}{i18N.Translate(": ")}0 KB";
+            UsedBandwidthLabel.Text = $@"{i18N.Translate("Used", ": ")}0 KB";
             UpdateStatus();
 
             VersionLabel.Text = UpdateChecker.Version;
         }
-                #region MISC
+
+        private void Exit(bool forceExit = false)
+        {
+            if (IsDisposed) return;
+
+            // 已启动
+            if (State != State.Waiting && State != State.Stopped)
+            {
+                if (Global.Settings.StopWhenExited || forceExit)
+                {
+                    UpdateStatus(State.Stopping);
+                    ControlFun();
+                }
+                else
+                {
+                    // 未开启自动停止
+                    MessageBoxX.Show(i18N.Translate("Please press Stop button first"));
+
+                    Visible = true;
+                    ShowInTaskbar = true; // 显示在系统任务栏 
+                    WindowState = FormWindowState.Normal; // 还原窗体 
+                    NotifyIcon.Visible = true; // 托盘图标隐藏 
+
+                    return;
+                }
+            }
+
+            NotifyIcon.Visible = false;
+            Hide();
+
+            Task.Run(() =>
+            {
+                for (var i = 0; i < 16; i++)
+                {
+                    if (State == State.Waiting || State == State.Stopped)
+                        break;
+                    Thread.Sleep(250);
+                }
+
+                SaveConfigs();
+                UpdateStatus(State.Terminating);
+                Dispose();
+                Environment.Exit(Environment.ExitCode);
+            });
+        }
+
+        #region MISC
+
         /// <summary>
         /// 监听电源事件，自动重启Netch服务
         /// </summary>
@@ -285,7 +318,7 @@ namespace Netch.Forms
             }
             else
             {
-                MessageBox.Show(i18N.Translate("Please select a server first"), i18N.Translate("Information"), MessageBoxButtons.OK, MessageBoxIcon.Information);
+                MessageBoxX.Show(i18N.Translate("Please select a server first"));
             }
         }
 
@@ -301,7 +334,6 @@ namespace Netch.Forms
                 Enabled = true;
                 StatusText(i18N.Translate("Test done"));
                 Refresh();
-                Configuration.Save();
             });
         }
 
@@ -324,7 +356,7 @@ namespace Netch.Forms
             }
             else
             {
-                MessageBox.Show(i18N.Translate("Please select an mode first"), i18N.Translate("Information"), MessageBoxButtons.OK, MessageBoxIcon.Information);
+                MessageBoxX.Show(i18N.Translate("Please select a mode first"));
             }
         }
 
@@ -349,7 +381,7 @@ namespace Netch.Forms
             }
             else
             {
-                MessageBox.Show(i18N.Translate("Please select an mode first"), i18N.Translate("Information"), MessageBoxButtons.OK, MessageBoxIcon.Information);
+                MessageBoxX.Show(i18N.Translate("Please select a mode first"));
             }
         }
 
@@ -366,11 +398,12 @@ namespace Netch.Forms
                 }
                 catch (Exception)
                 {
+                    // ignored
                 }
             }
             else
             {
-                MessageBox.Show(i18N.Translate("Please select a server first"), i18N.Translate("Information"), MessageBoxButtons.OK, MessageBoxIcon.Information);
+                MessageBoxX.Show(i18N.Translate("Please select a server first"));
             }
         }
 
@@ -393,7 +426,7 @@ namespace Netch.Forms
             }
             else
             {
-                MessageBox.Show(i18N.Translate("Please select a server first"), i18N.Translate("Information"), MessageBoxButtons.OK, MessageBoxIcon.Information);
+                MessageBoxX.Show(i18N.Translate("Please select a server first"));
             }
         }
 
@@ -412,6 +445,11 @@ namespace Netch.Forms
             Activate();
         }
 
+        private void ExitToolStripButton_Click(object sender, EventArgs e)
+        {
+            Exit();
+        }
+
         private void NotifyIcon_MouseDoubleClick(object sender, MouseEventArgs e)
         {
             if (WindowState == FormWindowState.Minimized)
@@ -426,7 +464,7 @@ namespace Netch.Forms
         }
 
         #endregion
-        
+
         #endregion
     }
 }
